@@ -124,7 +124,9 @@ def create_group_access(sender, instance, created, **kwargs):
         # This will be true when we are updating an existing sample.
         try:
             group_access = GroupAccess.objects.get(group_id=group_id,
-                                                   object_id=instance.sample_id)
+                                                   content_type = ctype,
+                                                   object_id=instance.sample_id,
+                                                   )
         except GroupAccess.DoesNotExist:
             GroupAccess.objects.create(
                 id = utils.get_next_id(GroupAccess),
@@ -262,7 +264,7 @@ class MetamorphicGrade(models.Model):
     def __unicode__(self):
         return self.name
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'metamorphic_grades'
 
 class MetamorphicRegion(models.Model):
@@ -275,7 +277,7 @@ class MetamorphicRegion(models.Model):
     def __unicode__(self):
         return self.name
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'metamorphic_regions'
 
 class MineralType(models.Model):
@@ -292,7 +294,7 @@ class Mineral(models.Model):
     def __unicode__(self):
         return self.name
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'minerals'
 
 
@@ -302,7 +304,7 @@ class Reference(models.Model):
     def __unicode__(self):
         return self.name
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'reference'
 
 class Region(models.Model):
@@ -311,7 +313,7 @@ class Region(models.Model):
     def __unicode__(self):
         return self.name
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'regions'
         get_latest_by = "region_id"
 
@@ -321,7 +323,7 @@ class RockType(models.Model):
     def __unicode__(self):
         return self.rock_type
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'rock_type'
 
 class Role(models.Model):
@@ -448,7 +450,7 @@ class Sample(models.Model):
     def __unicode__(self):
         return u'Sample #' + unicode(self.sample_id)
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'samples'
         get_latest_by = "sample_id"
         permissions = (('read_sample', 'Can read sample'),)
@@ -459,12 +461,35 @@ class Sample(models.Model):
         super(Sample, self).save()
 
 
+@receiver(post_save, sender=Sample)
+def create_sample_group_access(sender, instance, created, **kwargs):
+    ctype = ContentType.objects.get_for_model(instance)
+    group_id = instance.user.django_user.groups.filter(
+                    name__iendswith=instance.user.django_user.username)[0].id
+    try: id = GroupAccess.objects.latest('id').id + 1
+    except GroupAccess.DoesNotExist: id = 1
+
+    # Create a group access only if one doesn't already exists.
+    # This will be true when we are updating an existing sample.
+    try:
+        group_access = GroupAccess.objects.get(group_id = group_id,
+                                               content_type = ctype,
+                                               object_id = instance.sample_id)
+    except GroupAccess.DoesNotExist:
+        GroupAccess.objects.create(
+            id = id,
+            group_id = group_id,
+            read_access = True,
+            write_access = True,
+            content_type = ctype,
+            object_id = instance.sample_id)
+
 class SampleMetamorphicGrade(models.Model):
     sample = models.ForeignKey('Sample')
     metamorphic_grade = models.ForeignKey(MetamorphicGrade)
     id = models.IntegerField(primary_key=True)
     class Meta:
-        managed = False
+        # managed = False
         unique_together = (('sample', 'metamorphic_grade'),)
         db_table = u'sample_metamorphic_grades'
         get_latest_by = 'id'
@@ -474,7 +499,7 @@ class SampleMetamorphicRegion(models.Model):
     metamorphic_region = models.ForeignKey(MetamorphicRegion)
     id = models.IntegerField(primary_key=True)
     class Meta:
-        managed = False
+        # managed = False
         unique_together = (('sample', 'metamorphic_region'),)
         db_table = u'sample_metamorphic_regions'
         get_latest_by = 'id'
@@ -485,7 +510,7 @@ class SampleMineral(models.Model):
     amount = models.CharField(max_length=30, blank=True)
     id = models.IntegerField(primary_key=True)
     class Meta:
-        managed = False
+        # managed = False
         unique_together = (('mineral', 'sample'),)
         db_table = u'sample_minerals'
         get_latest_by = 'id'
@@ -495,7 +520,7 @@ class SampleReference(models.Model):
     reference = models.ForeignKey(Reference)
     id = models.IntegerField(primary_key=True)
     class Meta:
-        managed = False
+        # managed = False
         unique_together = (('sample', 'reference'),)
         db_table = u'sample_reference'
         get_latest_by = 'id'
@@ -506,7 +531,7 @@ class SampleRegion(models.Model):
     region = models.ForeignKey(Region)
     id = models.IntegerField(primary_key=True)
     class Meta:
-        managed = False
+        # managed = False
         unique_together = (('sample', 'region'),)
         db_table = u'sample_regions'
         get_latest_by = 'id'
@@ -518,7 +543,7 @@ class SampleAliase(models.Model):
     def __unicode__(self):
         return self.alias
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'sample_aliases'
         unique_together = (('sample', 'alias'),)
 
@@ -532,8 +557,44 @@ class Subsample(models.Model):
     grid_id = models.BigIntegerField(null=True, blank=True)
     name = models.CharField(max_length=100)
     subsample_type = models.ForeignKey(SubsampleType)
+    group_access = generic.GenericRelation(GroupAccess)
     class Meta:
-        db_table = 'subsamples'
+        db_table = u'subsamples'
+        # managed = False
+        permissions = (('read_subsample', 'Can read subsample'),)
+    def save(self, **kwargs):
+        # Assign a sample ID only for create requests
+        if self.subsample_id is None:
+            try: id = Subsample.objects.latest('subsample_id').subsample_id + 1
+            except Subsample.DoesNotExist: id = 1
+            self.subsample_id = id
+        subsample = super(Subsample, self).save()
+
+@receiver(post_save, sender=Subsample)
+def create_subsample_group_access(sender, instance, created, **kwargs):
+
+    ctype = ContentType.objects.get_for_model(instance)
+    group_id = instance.user.django_user.groups.filter(
+                    name__endswith=instance.user.django_user.username)[0].id
+    logger.error("sender: {}, instance: {}, created: {}, kwargs: {}".format(sender, instance, created, kwargs))
+    try: id = GroupAccess.objects.latest('id').id + 1
+    except GroupAccess.DoesNotExist: id = 1
+
+    # Create a group access only if one doesn't already exists.
+    # This will be true when we are updating an existing sample.
+
+    try:
+        group_access = GroupAccess.objects.get(group_id = group_id,
+                                               content_type = ctype,
+                                               object_id = instance.subsample_id)
+    except GroupAccess.DoesNotExist:
+        GroupAccess.objects.create(
+            id = id,
+            group_id = group_id,
+            read_access = True,
+            write_access = True,
+            content_type = ctype,
+            object_id = instance.subsample_id)
 
 class Grid(models.Model):
     grid_id = models.BigIntegerField(primary_key=True)
@@ -619,7 +680,7 @@ class Image(models.Model):
     filename = models.CharField(max_length=256)
     checksum_mobile = models.CharField(max_length=50, blank=True)
     class Meta:
-        managed = False
+        # managed = False
         db_table = u'images'
         permissions = (('read_image', 'Can read image'),)
 

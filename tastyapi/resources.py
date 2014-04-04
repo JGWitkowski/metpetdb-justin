@@ -128,6 +128,7 @@ class ObjectAuthorization(Authorization):
         """Make a queryset of all the objects we can read."""
         filters = auth.get_read_queryset(bundle.request.user)
         qs = object_list.filter(filters)
+        logger.info("qs = {}".format(qs))
         return qs
     read_detail = _check_perm_closure(lambda self: self.read_perm)
     def create_list(self, object_list, bundle):
@@ -151,8 +152,7 @@ class ObjectAuthorization(Authorization):
         if bundle.obj.user.django_user == user and user.has_perm(self.add_perm):
             return True
         else:
-            # print bundle.obj.user.django_user
-            logger.warning("User must own created object.")
+            logger.warning("User must own created object (detailed).")
             raise Unauthorized("User must own created object.")
     update_list = _filter_by_permission_closure(lambda self: self.change_perm)
     update_detail = _check_perm_closure(lambda self: self.change_perm)
@@ -464,14 +464,15 @@ class SubsampleTypeResource(BaseResource):
         filtering = {'subsample_type': ALL}
 
 class SubsampleResource(VersionedResource, FirstOrderResource):
+    user = fields.ToOneField("tastyapi.resources.UserResource", "user")
     sample = fields.ToOneField(SampleResource, "sample")
     subsample_type = fields.ToOneField(SubsampleTypeResource, "subsample_type")
     class Meta:
         queryset = Subsample.objects.all()
         excludes = ['user']
+        allowed_methods = ['get', 'post', 'put', 'delete']
         authorization = ObjectAuthorization('tastyapi', 'subsample')
         authentication = ApiKeyAuthentication()
-        # authorization = Authorization()
         filtering = {
                 'public_data': ALL,
                 'grid_id': ALL,
